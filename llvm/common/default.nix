@@ -14,9 +14,9 @@
   overrideCC,
   wrapCCWith,
   wrapBintoolsWith,
-  buildLlvmTools, # tools, but from the previous stage, for cross
-  targetLlvmLibraries, # libraries, but from the next stage, for cross
-  targetLlvm,
+  # buildLlvmTools, # tools, but from the previous stage, for cross
+  # targetLlvmLibraries, # libraries, but from the next stage, for cross
+  # targetLlvm,
   # This is the default binutils, but with *this* version of LLD rather
   # than the default LLVM version's, if LLD is the choice. We use these for
   # the `useLLVM` bootstrapping below.
@@ -363,15 +363,15 @@ let
         cc:
         mkExtraBuildCommands0 cc
         + ''
-          ln -s "${targetLlvmLibraries.compiler-rt-no-libc.out}/lib" "$rsrc/lib"
-          ln -s "${targetLlvmLibraries.compiler-rt-no-libc.out}/share" "$rsrc/share"
+          ln -s "${libraries.compiler-rt-no-libc.out}/lib" "$rsrc/lib"
+          ln -s "${libraries.compiler-rt-no-libc.out}/share" "$rsrc/share"
         '';
       mkExtraBuildCommands =
         cc:
         mkExtraBuildCommands0 cc
         + ''
-          ln -s "${targetLlvmLibraries.compiler-rt.out}/lib" "$rsrc/lib"
-          ln -s "${targetLlvmLibraries.compiler-rt.out}/share" "$rsrc/share"
+          ln -s "${libraries.compiler-rt.out}/lib" "$rsrc/lib"
+          ln -s "${libraries.compiler-rt.out}/share" "$rsrc/share"
         '';
 
       bintoolsNoLibc' = if bootBintoolsNoLibc == null then tools.bintoolsNoLibc else bootBintoolsNoLibc;
@@ -379,6 +379,7 @@ let
     in
     {
       libllvm = callPackage ./llvm {
+        buildLlvmTools = tools;
         patches =
           lib.optional (lib.versionOlder metadata.release_version "14") ./llvm/llvm-config-link-static.patch
           ++ [ (metadata.getVersionFile "llvm/gnu-install-dirs.patch") ]
@@ -518,6 +519,7 @@ let
       llvm = tools.libllvm;
 
       libclang = callPackage ./clang {
+        buildLlvmTools = tools;
         patches =
           [
             (metadata.getVersionFile "clang/purity.patch")
@@ -627,18 +629,19 @@ let
         cc = tools.clang-unwrapped;
         # libstdcxx is taken from gcc in an ad-hoc way in cc-wrapper.
         libcxx = null;
-        extraPackages = [ targetLlvmLibraries.compiler-rt ];
+        extraPackages = [ libraries.compiler-rt ];
         extraBuildCommands = mkExtraBuildCommands cc;
       };
 
       libcxxClang = wrapCCWith rec {
         cc = tools.clang-unwrapped;
-        libcxx = targetLlvmLibraries.libcxx;
-        extraPackages = [ targetLlvmLibraries.compiler-rt ];
+        libcxx = libraries.libcxx;
+        extraPackages = [ libraries.compiler-rt ];
         extraBuildCommands = mkExtraBuildCommands cc;
       };
 
       lld = callPackage ./lld {
+        buildLlvmTools = tools;
         patches =
           [ (metadata.getVersionFile "lld/gnu-install-dirs.patch") ]
           ++ lib.optional (lib.versions.major metadata.release_version == "14") (
@@ -749,22 +752,22 @@ let
       clangUseLLVM = wrapCCWith (
         rec {
           cc = tools.clang-unwrapped;
-          libcxx = targetLlvmLibraries.libcxx;
+          libcxx = libraries.libcxx;
           bintools = bintools';
           extraPackages =
-            [ targetLlvmLibraries.compiler-rt ]
+            [ libraries.compiler-rt ]
             ++ lib.optionals (!stdenv.targetPlatform.isWasm && !stdenv.targetPlatform.isFreeBSD) [
-              targetLlvmLibraries.libunwind
+              libraries.libunwind
             ];
           extraBuildCommands =
             lib.optionalString (lib.versions.major metadata.release_version == "13") (
               ''
                 echo "-rtlib=compiler-rt -Wno-unused-command-line-argument" >> $out/nix-support/cc-cflags
-                echo "-B${targetLlvmLibraries.compiler-rt}/lib" >> $out/nix-support/cc-cflags
+                echo "-B${libraries.compiler-rt}/lib" >> $out/nix-support/cc-cflags
               ''
               + lib.optionalString (!stdenv.targetPlatform.isWasm) ''
                 echo "--unwindlib=libunwind" >> $out/nix-support/cc-cflags
-                echo "-L${targetLlvmLibraries.libunwind}/lib" >> $out/nix-support/cc-ldflags
+                echo "-L${libraries.libunwind}/lib" >> $out/nix-support/cc-ldflags
               ''
               + lib.optionalString (!stdenv.targetPlatform.isWasm && stdenv.targetPlatform.useLLVM or false) ''
                 echo "-lunwind" >> $out/nix-support/cc-ldflags
@@ -780,7 +783,7 @@ let
             [
               "-rtlib=compiler-rt"
               "-Wno-unused-command-line-argument"
-              "-B${targetLlvmLibraries.compiler-rt}/lib"
+              "-B${libraries.compiler-rt}/lib"
             ]
             ++ lib.optional (
               !stdenv.targetPlatform.isWasm && !stdenv.targetPlatform.isFreeBSD
@@ -793,33 +796,33 @@ let
             ++ lib.optional stdenv.targetPlatform.isWasm "-fno-exceptions";
           nixSupport.cc-ldflags = lib.optionals (
             !stdenv.targetPlatform.isWasm && !stdenv.targetPlatform.isFreeBSD
-          ) [ "-L${targetLlvmLibraries.libunwind}/lib" ];
+          ) [ "-L${libraries.libunwind}/lib" ];
         }
       );
 
       clangWithLibcAndBasicRtAndLibcxx = wrapCCWith (
         rec {
           cc = tools.clang-unwrapped;
-          libcxx = targetLlvmLibraries.libcxx;
+          libcxx = libraries.libcxx;
           bintools = bintools';
           extraPackages =
-            [ targetLlvmLibraries.compiler-rt-no-libc ]
+            [ libraries.compiler-rt-no-libc ]
             ++ lib.optionals
               (
                 !stdenv.targetPlatform.isWasm && !stdenv.targetPlatform.isFreeBSD && !stdenv.targetPlatform.isDarwin
               )
               [
-                targetLlvmLibraries.libunwind
+                libraries.libunwind
               ];
           extraBuildCommands =
             lib.optionalString (lib.versions.major metadata.release_version == "13") (
               ''
                 echo "-rtlib=compiler-rt -Wno-unused-command-line-argument" >> $out/nix-support/cc-cflags
-                echo "-B${targetLlvmLibraries.compiler-rt-no-libc}/lib" >> $out/nix-support/cc-cflags
+                echo "-B${libraries.compiler-rt-no-libc}/lib" >> $out/nix-support/cc-cflags
               ''
               + lib.optionalString (!stdenv.targetPlatform.isWasm && !stdenv.targetPlatform.isDarwin) ''
                 echo "--unwindlib=libunwind" >> $out/nix-support/cc-cflags
-                echo "-L${targetLlvmLibraries.libunwind}/lib" >> $out/nix-support/cc-ldflags
+                echo "-L${libraries.libunwind}/lib" >> $out/nix-support/cc-ldflags
               ''
               + lib.optionalString (!stdenv.targetPlatform.isWasm && stdenv.targetPlatform.useLLVM or false) ''
                 echo "-lunwind" >> $out/nix-support/cc-ldflags
@@ -835,7 +838,7 @@ let
             [
               "-rtlib=compiler-rt"
               "-Wno-unused-command-line-argument"
-              "-B${targetLlvmLibraries.compiler-rt-no-libc}/lib"
+              "-B${libraries.compiler-rt-no-libc}/lib"
             ]
             ++ lib.optional (
               !stdenv.targetPlatform.isWasm && !stdenv.targetPlatform.isFreeBSD && !stdenv.targetPlatform.isDarwin
@@ -848,7 +851,7 @@ let
             ++ lib.optional stdenv.targetPlatform.isWasm "-fno-exceptions";
           nixSupport.cc-ldflags = lib.optionals (
             !stdenv.targetPlatform.isWasm && !stdenv.targetPlatform.isFreeBSD && !stdenv.targetPlatform.isDarwin
-          ) [ "-L${targetLlvmLibraries.libunwind}/lib" ];
+          ) [ "-L${libraries.libunwind}/lib" ];
         }
       );
 
@@ -857,11 +860,11 @@ let
           cc = tools.clang-unwrapped;
           libcxx = null;
           bintools = bintools';
-          extraPackages = [ targetLlvmLibraries.compiler-rt-no-libc ];
+          extraPackages = [ libraries.compiler-rt-no-libc ];
           extraBuildCommands =
             lib.optionalString (lib.versions.major metadata.release_version == "13") ''
               echo "-rtlib=compiler-rt" >> $out/nix-support/cc-cflags
-              echo "-B${targetLlvmLibraries.compiler-rt-no-libc}/lib" >> $out/nix-support/cc-cflags
+              echo "-B${libraries.compiler-rt-no-libc}/lib" >> $out/nix-support/cc-cflags
               echo "-nostdlib++" >> $out/nix-support/cc-cflags
             ''
             + mkExtraBuildCommandsBasicRt cc;
@@ -870,7 +873,7 @@ let
           nixSupport.cc-cflags =
             [
               "-rtlib=compiler-rt"
-              "-B${targetLlvmLibraries.compiler-rt-no-libc}/lib"
+              "-B${libraries.compiler-rt-no-libc}/lib"
               "-nostdlib++"
             ]
             ++ lib.optional (
@@ -884,11 +887,11 @@ let
           cc = tools.clang-unwrapped;
           libcxx = null;
           bintools = bintoolsNoLibc';
-          extraPackages = [ targetLlvmLibraries.compiler-rt-no-libc ];
+          extraPackages = [ libraries.compiler-rt-no-libc ];
           extraBuildCommands =
             lib.optionalString (lib.versions.major metadata.release_version == "13") ''
               echo "-rtlib=compiler-rt" >> $out/nix-support/cc-cflags
-              echo "-B${targetLlvmLibraries.compiler-rt-no-libc}/lib" >> $out/nix-support/cc-cflags
+              echo "-B${libraries.compiler-rt-no-libc}/lib" >> $out/nix-support/cc-cflags
             ''
             + mkExtraBuildCommandsBasicRt cc;
         }
@@ -896,7 +899,7 @@ let
           nixSupport.cc-cflags =
             [
               "-rtlib=compiler-rt"
-              "-B${targetLlvmLibraries.compiler-rt-no-libc}/lib"
+              "-B${libraries.compiler-rt-no-libc}/lib"
             ]
             ++ lib.optional (
               lib.versionAtLeast metadata.release_version "15" && stdenv.targetPlatform.isWasm
@@ -954,8 +957,8 @@ let
       );
     }
     // lib.optionalAttrs (lib.versionAtLeast metadata.release_version "16") {
-      mlir = callPackage ./mlir { };
-      libclc = callPackage ./libclc.nix { };
+      mlir = callPackage ./mlir { buildLlvmTools = tools; };
+      libclc = callPackage ./libclc.nix { buildLlvmTools = tools; };
     }
     // lib.optionalAttrs (lib.versionAtLeast metadata.release_version "19") {
       bolt = callPackage ./bolt {
@@ -978,7 +981,7 @@ let
     let
       callPackage = newScope (
         libraries
-        // buildLlvmTools
+        #// buildLlvmTools
         // args
         // metadata
         # Previously monorepoSrc was erroneously not being passed through.
@@ -1040,11 +1043,11 @@ let
           # temp rename to avoid infinite recursion
           stdenv =
             # Darwin needs to use a bootstrap stdenv to avoid an infinite recursion when cross-compiling.
-            if args.stdenv.hostPlatform.isDarwin then
-              overrideCC darwin.bootstrapStdenv buildLlvmTools.clangWithLibcAndBasicRtAndLibcxx
-            else if args.stdenv.hostPlatform.useLLVM or false then
-              overrideCC args.stdenv buildLlvmTools.clangWithLibcAndBasicRtAndLibcxx
-            else
+            # if args.stdenv.hostPlatform.isDarwin then
+            #   overrideCC darwin.bootstrapStdenv buildLlvmTools.clangWithLibcAndBasicRtAndLibcxx
+            # else if args.stdenv.hostPlatform.useLLVM or false then
+            #   overrideCC args.stdenv buildLlvmTools.clangWithLibcAndBasicRtAndLibcxx
+            # else
               args.stdenv;
         in
         {
@@ -1063,10 +1066,10 @@ let
         doFakeLibgcc = stdenv.hostPlatform.useLLVM or false;
         stdenv =
           # Darwin needs to use a bootstrap stdenv to avoid an infinite recursion when cross-compiling.
-          if stdenv.hostPlatform.isDarwin then
-            overrideCC darwin.bootstrapStdenv buildLlvmTools.clangNoLibcNoRt
-          else
-            overrideCC stdenv buildLlvmTools.clangNoLibcNoRt;
+          # if stdenv.hostPlatform.isDarwin then
+            # overrideCC darwin.bootstrapStdenv clangNoLibcNoRt
+          # else
+            overrideCC stdenv tools.clangNoLibcNoRt;
       };
 
       compiler-rt =
@@ -1085,9 +1088,9 @@ let
         else
           libraries.compiler-rt-libc;
 
-      stdenv = overrideCC stdenv buildLlvmTools.clang;
+      stdenv = overrideCC stdenv tools.clang;
 
-      libcxxStdenv = overrideCC stdenv buildLlvmTools.libcxxClang;
+      libcxxStdenv = overrideCC stdenv tools.libcxxClang;
 
       libcxx = callPackage ./libcxx (
         {
@@ -1148,10 +1151,11 @@ let
                 # https://github.com/llvm/llvm-project/issues/64226
                 (metadata.getVersionFile "libcxx/0001-darwin-10.12-mbstate_t-fix.patch");
           stdenv =
-            if stdenv.hostPlatform.isDarwin then
-              overrideCC darwin.bootstrapStdenv buildLlvmTools.clangWithLibcAndBasicRt
-            else
-              overrideCC stdenv buildLlvmTools.clangWithLibcAndBasicRt;
+            # if stdenv.hostPlatform.isDarwin then
+              # overrideCC darwin.bootstrapStdenv buildLlvmTools.clangWithLibcAndBasicRt
+            # else
+              # overrideCC stdenv buildLlvmTools.clangWithLibcAndBasicRt;
+              overrideCC stdenv tools.clangWithLibcAndBasicRt;
         }
         // lib.optionalAttrs (lib.versionOlder metadata.release_version "14") {
           # TODO: remove this, causes LLVM 13 packages rebuild.
@@ -1163,7 +1167,7 @@ let
         patches = lib.optional (lib.versionOlder metadata.release_version "17") (
           metadata.getVersionFile "libunwind/gnu-install-dirs.patch"
         );
-        stdenv = overrideCC stdenv buildLlvmTools.clangWithLibcAndBasicRt;
+        stdenv = overrideCC stdenv tools.clangWithLibcAndBasicRt;
       };
 
       openmp = callPackage ./openmp {
